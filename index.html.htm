@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اپلیکیشن تحلیل داده‌های طیفی خاک</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PyScript for running Python in the browser -->
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Vazirmatn', sans-serif;
+            background-color: #f8fafc;
+        }
+        py-script {
+            display: none; /* Hide the Python code block */
+        }
+        .tab-button {
+            transition: all 0.3s ease;
+        }
+        .tab-button.active {
+            border-color: #3b82f6;
+            background-color: #3b82f6;
+            color: white;
+        }
+        .output-container {
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-top: 1rem;
+            background-color: white;
+        }
+        /* Custom spinner */
+        .loader {
+            width: 50px;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            border: 8px solid #555;
+            border-right-color: #3b82f6;
+            animation: l2 1s infinite linear;
+        }
+        @keyframes l2 {to{transform: rotate(1turn)}}
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-8">
+        <header class="text-center mb-8 border-b pb-6">
+            <h1 class="text-4xl font-bold text-blue-600">ابزار هوشمند تحلیل داده‌های طیفی خاک</h1>
+            <p class="text-lg text-gray-600 mt-2">پیش‌بینی هدایت الکتریکی (EC) خاک با استفاده از یادگیری ماشین</p>
+        </header>
+
+        <!-- بخش کنترل و ورودی -->
+        <div id="control-panel" class="bg-white p-6 rounded-xl shadow-md mb-8">
+            <h2 class="text-2xl font-semibold mb-4">۱. شروع تحلیل</h2>
+            <div class="flex flex-col sm:flex-row items-center gap-4">
+                <div>
+                    <label for="file-input" class="block mb-2 font-medium text-gray-700">فایل داده خود را انتخاب کنید (CSV):</label>
+                    <input type="file" id="file-input" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                </div>
+                <button id="run-button" class="w-full sm:w-auto bg-blue-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-blue-700 transition duration-300 disabled:bg-gray-400 mt-4 sm:mt-auto self-end">
+                    شروع تحلیل
+                </button>
+            </div>
+            <p id="file-error" class="text-red-500 mt-2 whitespace-pre-wrap hidden"></p>
+        </div>
+
+        <!-- بخش نمایش نتایج -->
+        <div id="results-section" class="hidden">
+            <h2 class="text-2xl font-semibold mb-4">۲. نتایج تحلیل</h2>
+            
+            <!-- Loader -->
+            <div id="loader-container" class="text-center p-8 hidden">
+                <div class="loader mx-auto"></div>
+                <p class="mt-4 text-lg text-gray-600">در حال پردازش... این فرآیند ممکن است چند دقیقه طول بکشد.</p>
+            </div>
+            
+            <!-- Tabs for different results -->
+            <div id="tabs-container" class="hidden">
+                 <div class="border-b border-gray-200 mb-4">
+                    <nav class="flex flex-wrap -mb-px" aria-label="Tabs">
+                        <button onclick="showTab('logs')" class="tab-button active whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">گزارش فرآیند</button>
+                        <button onclick="showTab('plots')" class="tab-button whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">نمودارها</button>
+                        <button onclick="showTab('summary')" class="tab-button whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">خلاصه عملکرد مدل‌ها</button>
+                        <button onclick="showTab('downloads')" class="tab-button whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">دانلود فایل‌ها</button>
+                    </nav>
+                </div>
+                
+                <!-- Tab Content -->
+                <div id="logs-tab" class="tab-content">
+                    <div class="output-container">
+                       <h3 class="text-xl font-semibold mb-2">گزارش لحظه‌ای فرآیند</h3>
+                       <pre id="logs-output" class="bg-gray-900 text-white text-sm rounded-lg p-4 h-96 overflow-y-auto whitespace-pre-wrap"></pre>
+                    </div>
+                </div>
+
+                <div id="plots-tab" class="tab-content hidden">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="output-container" id="plot_01_ec_distribution_div"></div>
+                        <div class="output-container" id="plot_02_sample_raw_spectra_div"></div>
+                        <div class="output-container" id="plot_03_pca_scree_plot_div"></div>
+                        <div class="output-container" id="plot_04_pca_cumulative_variance_div"></div>
+                    </div>
+                     <div class="output-container mt-6" id="plot_21_model_performance_comparison_div"></div>
+                     <div class="output-container mt-6" id="plot_22_feature_importance_div"></div>
+                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6" id="model_specific_plots_div"></div>
+                </div>
+                
+                <div id="summary-tab" class="tab-content hidden">
+                    <div class="output-container">
+                        <h3 class="text-xl font-semibold mb-2">جدول مقایسه عملکرد مدل‌ها</h3>
+                        <div id="summary-table-output" class="overflow-x-auto"></div>
+                    </div>
+                </div>
+                
+                <div id="downloads-tab" class="tab-content hidden">
+                    <div class="output-container">
+                         <h3 class="text-xl font-semibold mb-2">فایل‌های خروجی برای دانلود</h3>
+                         <div id="downloads-output" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- The Python script goes here -->
+    <py-config>
+        packages = [
+            "numpy",
+            "pandas",
+            "scikit-learn",
+            "scipy",
+            "matplotlib",
+            "pywavelets"
+        ]
+    </py-config>
+    <py-script>
+        import pandas as pd
+        import numpy as np
+        from scipy.signal import savgol_filter
+        from scipy.interpolate import interp1d
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.decomposition import PCA
+        from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor
+        from sklearn.svm import SVR
+        from sklearn.linear_model import LinearRegression
+        from sklearn.model_selection import train_test_split, GridSearchCV
+        from sklearn.metrics import r2_score, mean_squared_error
+        from sklearn.cross_decomposition import PLSRegression
+        import matplotlib.pyplot as plt
+        import os
+        from scipy.stats import skew, kurtosis
+        import pywt 
+        import time 
+        import joblib
+        import json 
+        import io
+        import base64
+        import sys
+        from pyscript import document, create, when
+        from js import document as js_document, Blob, URL
+
+        # --- 0. Setup Environment and Global Variables ---
+        class IORedirector:
+            def __init__(self, element_id):
+                self.element = js_document.getElementById(element_id)
+                self.buffer = ''
+
+            def write(self, text):
+                self.buffer += text
+                self.element.innerText = self.buffer
+                self.element.scrollTop = self.element.scrollHeight
+
+            def flush(self):
+                pass
+        
+        # --- Units Dictionary ---
+        units_map = {
+            'BIO1': '°C', 'BIO2': '°C', 'BIO3': '%', 'BIO4': '°C*100',
+            'BIO5': '°C', 'BIO6': '°C', 'BIO7': '°C', 'BIO8': '°C',
+            'BIO9': '°C', 'BIO10': '°C', 'BIO11': '°C', 'BIO12': 'mm',
+            'BIO13': 'mm', 'BIO14': 'mm', 'BIO15': '%', 'BIO16': 'mm',
+            'BIO17': 'mm', 'BIO18': 'mm', 'BIO19': 'mm',
+            'pH_CaCl2': '', 'pH_H20': '', 'EC': 'mS/m', 'OC': 'g/kg',
+            'CaCO3': 'g/kg', 'P': 'mg/kg', 'N': 'g/kg', 'K': 'mg/kg',
+            'X': 'WGS1984', 'Y': 'WGS1984', 'Elevation': 'm',
+            'Slope': 'degrees', 'Aspect': 'degrees'
+        }
+        
+        # This will hold the file content after upload
+        uploaded_file_content = None
+        base_save_directory = "/output"
+
+        @when('click', '#run-button')
+        async def run_analysis(event):
+            # --- Reset UI ---
+            log_output = js_document.getElementById('logs-output')
+            log_output.innerText = ""
+            sys.stdout = IORedirector('logs-output')
+            sys.stderr = IORedirector('logs-output')
+            
+            js_document.getElementById('file-error').classList.add('hidden')
+            js_document.getElementById('results-section').classList.remove('hidden')
+            js_document.getElementById('loader-container').classList.remove('hidden')
+            js_document.getElementById('tabs-container').classList.add('hidden')
+            js_document.getElementById('run-button').disabled = True
+            
+            # Reset output areas
+            js_document.getElementById('downloads-output').innerHTML = ""
+            plot_divs = ['plot_01_ec_distribution_div', 'plot_02_sample_raw_spectra_div', 'plot_03_pca_scree_plot_div', 'plot_04_pca_cumulative_variance_div', 'plot_21_model_performance_comparison_div', 'plot_22_feature_importance_div', 'model_specific_plots_div']
+            for div_id in plot_divs:
+                js_document.getElementById(div_id).innerHTML = ""
+            js_document.getElementById('summary-table-output').innerHTML = ""
+
+            try:
+                # Get the uploaded file from the input element
+                file_input = document.querySelector("#file-input")
+                file_list = file_input.files
+                if not file_list:
+                    print("خطا: لطفاً ابتدا یک فایل CSV را انتخاب کنید.")
+                    js_document.getElementById('file-error').classList.remove('hidden')
+                    js_document.getElementById('loader-container').classList.add('hidden')
+                    js_document.getElementById('run-button').disabled = False
+                    return
+
+                file_content = await file_list[0].text()
+                await main(file_content)
+
+            except Exception as e:
+                print(f"یک خطای کلی در اجرای اسکریپت رخ داد: {e}")
+            finally:
+                # --- Finalize UI ---
+                js_document.getElementById('loader-container').classList.add('hidden')
+                js_document.getElementById('tabs-container').classList.remove('hidden')
+                js_document.getElementById('run-button').disabled = False
+
+
+        async def main(file_content):
+            plt.style.use('seaborn-v0_8-whitegrid')
+            plt.rcParams['axes.unicode_minus'] = False
+
+            base_save_directory = "/run1"
+            
+            print(f"دایرکتوری مجازی برای ذخیره‌سازی ایجاد شد: {base_save_directory}")
+            
+            def create_download_link(data, filename, is_binary=False):
+                if is_binary:
+                    b64 = base64.b64encode(data).decode()
+                    mimetype = 'application/octet-stream'
+                    href = f"data:{mimetype};base64,{b64}"
+                else: # Assuming text
+                    blob = Blob.new([data.encode('utf-8')], {type: "text/csv;charset=utf-8"})
+                    href = URL.createObjectURL(blob)
+
+                link = create("a", classes="bg-green-100 text-green-800 text-xs font-medium mr-2 px-2.5 py-1.5 rounded-lg hover:bg-green-200 transition-all")
+                link.element.href = href
+                link.element.download = filename
+                link.element.innerText = filename
+                document.querySelector("#downloads-output").append(link)
+
+            def save_and_link_df(df, filename):
+                csv_buffer = io.StringIO()
+                df.to_csv(csv_buffer, index=False)
+                create_download_link(csv_buffer.getvalue(), filename)
+                print(f"فایل آماده دانلود: {filename}")
+            
+            # --- 1. Data Loading and Initial Setup ---
+            print("\n--- گام ۱: بارگذاری و بررسی اولیه داده ---")
+            start_time_total = time.time()
+            try:
+                df_original = pd.read_csv(io.StringIO(file_content))
+                print(f"داده با موفقیت بارگذاری شد.")
+                print(f"ابعاد اولیه داده: {df_original.shape}")
+            except Exception as e:
+                print(f"خطا در خواندن فایل CSV: {e}")
+                return
+
+            df = df_original.copy()
+            
+            auxiliary_features_names = [
+                'pH_CaCl2', 'pH_H20', 'OC', 'CaCO3', 'P', 'N', 'K', 'X', 'Y', 'Elevation',
+                'Slope', 'Aspect', 'BIO1', 'BIO2', 'BIO3', 'BIO4', 'BIO5', 'BIO6', 'BIO7',
+                'BIO8', 'BIO9', 'BIO10', 'BIO11', 'BIO12', 'BIO13', 'BIO14', 'BIO15',
+                'BIO16', 'BIO17', 'BIO18', 'BIO19'
+            ]
+            target_feature_name = 'EC'
+            
+            print("بررسی ستون‌های ضروری در فایل ورودی...")
+            required_cols = auxiliary_features_names + [target_feature_name, 'PointID']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+
+            if missing_cols:
+                error_msg = f"خطای حیاتی: فایل CSV آپلود شده فاقد ستون‌های ضروری است.\nستون‌های یافت نشده: {missing_cols}\n\nلطفاً فایل خود را اصلاح کرده و دوباره امتحان کنید."
+                print(error_msg)
+                error_element = js_document.getElementById('file-error')
+                error_element.innerText = error_msg
+                error_element.classList.remove('hidden')
+                js_document.getElementById('loader-container').classList.add('hidden')
+                return
+            else:
+                print("تمام ستون‌های ضروری یافت شدند.")
+
+
+            non_spectral_metadata_columns = [
+                'source', 'SampleID', 'NUTS_0_x', 'SampleN', 'merge_key', 'LC', 
+                'NUTS_0_y', 'BioGeo', 'Coarse', 'Clay', 'Sand', 'Silt'
+            ]
+            
+            potential_spectral_columns = [
+                col for col in df.columns
+                if col not in auxiliary_features_names and
+                   col != target_feature_name and
+                   col not in non_spectral_metadata_columns and
+                   col != 'PointID' 
+            ]
+            spectral_columns = []
+            for col in potential_spectral_columns:
+                try:
+                    float(col)
+                    spectral_columns.append(col)
+                except ValueError:
+                    pass
+
+            if not spectral_columns:
+                print("خطا: هیچ ستون طیفی شناسایی نشد.")
+                return
+            print(f"تعداد ستون‌های طیفی شناسایی شده: {len(spectral_columns)}")
+
+            for col in spectral_columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+            df.dropna(subset=[target_feature_name] + spectral_columns, inplace=True)
+            print(f"ابعاد داده پس از حذف ردیف‌های NaN: {df.shape}")
+            if df.shape[0] == 0:
+                print("خطا: داده‌ای پس از حذف NaN باقی نمانده است.")
+                return
+
+            point_id_all = df['PointID'].copy()
+            X_spec_raw_all = df[spectral_columns].values
+            X_aux_all = df[auxiliary_features_names].values
+            y_all = df[target_feature_name].values
+            wavelengths = np.array([float(col) for col in spectral_columns])
+            
+            initial_data_to_save = df[['PointID'] + spectral_columns + auxiliary_features_names + [target_feature_name]].copy()
+            save_and_link_df(initial_data_to_save, "00_input_data_for_processing_with_PointID.csv")
+
+            fig1, ax1 = plt.subplots(figsize=(10, 6))
+            ax1.hist(y_all, bins=30, color='skyblue', edgecolor='black')
+            ax1.set_title('توزیع مقادیر هدایت الکتریکی خاک')
+            ax1.set_xlabel(f'{target_feature_name} ({units_map.get(target_feature_name, "mS/m")})')
+            ax1.set_ylabel('فراوانی')
+            ax1.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            pyscript.display(fig1, target="plot_01_ec_distribution_div")
+            plt.close(fig1)
+
+            fig2, ax2 = plt.subplots(figsize=(12, 7))
+            num_spectra_to_plot = min(5, X_spec_raw_all.shape[0])
+            for i in range(num_spectra_to_plot):
+                ax2.plot(wavelengths, X_spec_raw_all[i, :], label=f'نمونه {i+1}')
+            ax2.set_title('نمونه‌ای از طیف‌های خام')
+            ax2.set_xlabel('طول موج (nm)')
+            ax2.set_ylabel('جذب')
+            ax2.legend()
+            ax2.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            pyscript.display(fig2, target="plot_02_sample_raw_spectra_div")
+            plt.close(fig2)
+
+            print("\n--- گام ۲: پیش‌پردازش داده‌های طیفی ---")
+            def savgol_filter_spectra(spectra, window_length=11, polyorder=3, deriv=0):
+                if window_length % 2 == 0: window_length += 1
+                if window_length <= polyorder: window_length = polyorder + (2 if polyorder % 2 == 0 else 1)
+                return np.apply_along_axis(savgol_filter, 1, spectra, window_length=window_length, polyorder=polyorder, deriv=deriv)
+            
+            X_spec_savgol_all = savgol_filter_spectra(X_spec_raw_all)
+            print("فیلتر Savitzky-Golay اعمال شد.")
+
+            def snv(spectra):
+                snv_spectra = np.zeros_like(spectra, dtype=float)
+                for i in range(spectra.shape[0]):
+                    mean_spectrum, std_spectrum = np.mean(spectra[i, :]), np.std(spectra[i, :])
+                    snv_spectra[i, :] = (spectra[i, :] - mean_spectrum) / std_spectrum if std_spectrum != 0 else (spectra[i, :] - mean_spectrum)
+                return snv_spectra
+            X_spec_snv_all = snv(X_spec_savgol_all)
+            print("نرمال‌سازی SNV انجام شد.")
+
+            def continuum_removal(spectrum, wavelengths_arr):
+                f = interp1d(wavelengths_arr[[0, -1]], spectrum[[0, -1]], kind='linear', fill_value="extrapolate")
+                continuum_line = f(wavelengths_arr)
+                continuum_line[continuum_line < 1e-9] = 1e-9 
+                return spectrum / continuum_line
+            X_spec_cr_all = np.apply_along_axis(continuum_removal, 1, X_spec_snv_all, wavelengths_arr=wavelengths)
+            print("حذف پیوستار (Continuum Removal) انجام شد.")
+            
+            X_spec_first_deriv_all = savgol_filter_spectra(X_spec_cr_all, deriv=1)
+            X_spec_second_deriv_all = savgol_filter_spectra(X_spec_cr_all, deriv=2)
+            print("محاسبه مشتق اول و دوم انجام شد.")
+
+
+            print("\n--- گام ۳: تقسیم‌بندی داده‌ها ---")
+            (X_spec_cr_train_val, X_spec_cr_test,
+             X_spec_fd_train_val, X_spec_fd_test,
+             X_spec_sd_train_val, X_spec_sd_test,
+             X_aux_train_val, X_aux_test,
+             y_train_val, y_test,
+             point_ids_train_val, point_ids_test) = train_test_split(
+                X_spec_cr_all, X_spec_first_deriv_all, X_spec_second_deriv_all, X_aux_all, y_all, point_id_all,
+                test_size=0.20, random_state=42
+            )
+            (X_spec_cr_train, X_spec_cr_val,
+             X_spec_fd_train, X_spec_fd_val,
+             X_spec_sd_train, X_spec_sd_val,
+             X_aux_train, X_aux_val,
+             y_train, y_val,
+             point_ids_train, point_ids_val) = train_test_split(
+                X_spec_cr_train_val, X_spec_fd_train_val, X_spec_sd_train_val, X_aux_train_val, y_train_val, point_ids_train_val,
+                test_size=0.25, random_state=42 
+            )
+            print(f"اندازه مجموعه آموزش: {X_spec_cr_train.shape[0]}, اعتبارسنجی: {X_spec_cr_val.shape[0]}, آزمون: {X_spec_cr_test.shape[0]}")
+
+
+            print("\n--- گام ۴: استخراج ویژگی ---")
+            def extract_statistical_features(spectra_data, prefix=""):
+                features = {
+                    f'{prefix}Mean': np.mean(spectra_data, axis=1), f'{prefix}Std': np.std(spectra_data, axis=1),
+                    f'{prefix}Min': np.min(spectra_data, axis=1), f'{prefix}Max': np.max(spectra_data, axis=1),
+                    f'{prefix}Median': np.median(spectra_data, axis=1), f'{prefix}Skewness': skew(spectra_data, axis=1),
+                    f'{prefix}Kurtosis': kurtosis(spectra_data, axis=1)
+                }
+                q75, q25 = np.percentile(spectra_data, [75, 25], axis=1)
+                features[f'{prefix}IQR'] = q75 - q25
+                df_features = pd.DataFrame(features)
+                return df_features.values, list(df_features.columns)
+
+            def find_closest_wavelength_index(target_wl, available_wls): return (np.abs(available_wls - target_wl)).argmin()
+
+            def get_spectral_indices(X_spec_proc, wl):
+                blue_idx, green_idx, red_idx, nir_idx = (find_closest_wavelength_index(w, wl) for w in [470, 550, 660, 800])
+                if X_spec_proc.shape[0] == 0:
+                    num_indices = 4 
+                    return np.array([]).reshape(0, num_indices), ['NDSI', 'SI1_Blue_Red_Ratio', 'SI2_NIR_Red_NDVI_like', 'BI_Blue_Green_Red'][:num_indices]
+
+                blue_abs, green_abs, red_abs, nir_abs = (X_spec_proc[:, idx] for idx in [blue_idx, green_idx, red_idx, nir_idx])
+                si_list, si_names = [], []
+
+                denominator_ndsi = green_abs + red_abs
+                ndsi_values = np.divide(green_abs - red_abs, denominator_ndsi, out=np.zeros_like(denominator_ndsi, dtype=float), where=denominator_ndsi!=0)
+                si_list.append(ndsi_values)
+                si_names.append('NDSI')
+                
+                denominator_si1 = red_abs
+                si1_values = np.divide(blue_abs, denominator_si1, out=np.zeros_like(denominator_si1, dtype=float), where=denominator_si1!=0)
+                si_list.append(si1_values)
+                si_names.append('SI1_Blue_Red_Ratio')
+
+                denominator_si2 = nir_abs + red_abs
+                si2_values = np.divide(nir_abs - red_abs, denominator_si2, out=np.zeros_like(denominator_si2, dtype=float), where=denominator_si2!=0)
+                si_list.append(si2_values)
+                si_names.append('SI2_NIR_Red_NDVI_like')
+
+                bi_values = np.sqrt(blue_abs**2 + green_abs**2 + red_abs**2)
+                si_list.append(bi_values)
+                si_names.append('BI_Blue_Green_Red')
+
+                return np.array(si_list).T if si_list else np.array([]).reshape(X_spec_proc.shape[0], 0), si_names
+
+
+            def get_wavelet_features(X_spec_proc, wavelet_n='db4', decomp_lvl=3):
+                coeffs_stats_list, wv_names_final = [], []
+                names_generated = False
+                dummy_stat_feats, dummy_stat_names = extract_statistical_features(np.array([[0,0]]), prefix="dummy_")
+                num_stat_features = len(dummy_stat_names)
+                for i in range(X_spec_proc.shape[0]):
+                    coeffs = pywt.wavedec(X_spec_proc[i, :], wavelet_n, level=decomp_lvl)
+                    row_wv_feats, temp_names_collector = [], []
+                    cA_coeff = coeffs[0]
+                    current_prefix_ca = f'Wavelet_cA_L{decomp_lvl}_'
+                    if cA_coeff.size > 0:
+                        feats_arr, names = extract_statistical_features(cA_coeff.reshape(1, -1), prefix=current_prefix_ca)
+                        row_wv_feats.extend(feats_arr[0]); 
+                        if not names_generated: temp_names_collector.extend(names)
+                    else:
+                        row_wv_feats.extend([np.nan]*num_stat_features); 
+                        if not names_generated: temp_names_collector.extend([f'{current_prefix_ca}{s_name.split("_")[-1]}' for s_name in dummy_stat_names])
+                    for j_lvl in range(1, len(coeffs)):
+                        curr_lvl = decomp_lvl - j_lvl + 1
+                        cD_coeff = coeffs[j_lvl]
+                        current_prefix_cd = f'Wavelet_cD_L{curr_lvl}_'
+                        if cD_coeff.size > 0:
+                            feats_arr, names = extract_statistical_features(cD_coeff.reshape(1,-1), prefix=current_prefix_cd)
+                            row_wv_feats.extend(feats_arr[0]); 
+                            if not names_generated: temp_names_collector.extend(names)
+                        else:
+                            row_wv_feats.extend([np.nan]*num_stat_features); 
+                            if not names_generated: temp_names_collector.extend([f'{current_prefix_cd}{s_name.split("_")[-1]}' for s_name in dummy_stat_names])
+                    coeffs_stats_list.append(row_wv_feats)
+                    if not names_generated and temp_names_collector: wv_names_final = temp_names_collector; names_generated = True
+                wv_arr = np.array(coeffs_stats_list)
+                if np.isnan(wv_arr).any(): 
+                    col_means_wv = np.nanmean(wv_arr, axis=0)
+                    nan_inds = np.where(np.isnan(wv_arr))
+                    for k_nan in range(len(nan_inds[0])):
+                        r_nan, c_nan = nan_inds[0][k_nan], nan_inds[1][k_nan]
+                        wv_arr[r_nan, c_nan] = col_means_wv[c_nan] if not np.isnan(col_means_wv[c_nan]) else 0
+                return wv_arr, wv_names_final
+
+            
+            n_pca_components = min(10, X_spec_cr_train.shape[1], X_spec_cr_train.shape[0]) 
+            pca_transformer = PCA(n_components=n_pca_components)
+            print(f"اجرای PCA با {n_pca_components} مولفه...")
+            X_spec_pca_train = pca_transformer.fit_transform(X_spec_cr_train)
+            X_spec_pca_val = pca_transformer.transform(X_spec_cr_val)
+            X_spec_pca_test = pca_transformer.transform(X_spec_cr_test)
+            print("PCA با موفقیت انجام شد.")
+
+            fig3, ax3 = plt.subplots(figsize=(10, 6))
+            explained_variance_ratio = pca_transformer.explained_variance_ratio_
+            ax3.plot(np.arange(1, len(explained_variance_ratio) + 1), explained_variance_ratio, 'o-', linewidth=2, color='blue')
+            ax3.set_title('نمودار Scree برای PCA')
+            ax3.set_xlabel('مولفه اصلی')
+            ax3.set_ylabel('نسبت واریانس تبیین شده')
+            ax3.set_xticks(np.arange(1, len(explained_variance_ratio) + 1, step=max(1, len(explained_variance_ratio)//10)))
+            ax3.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            pyscript.display(fig3, target="plot_03_pca_scree_plot_div")
+            plt.close(fig3)
+
+            cumulative_explained_variance = np.cumsum(explained_variance_ratio)
+            print(f"واریانس تجمعی تبیین شده با {n_pca_components} مولفه: {cumulative_explained_variance[-1]:.3f}")
+            fig4, ax4 = plt.subplots(figsize=(10, 6))
+            ax4.plot(np.arange(1, len(cumulative_explained_variance) + 1), cumulative_explained_variance, 'o-', linewidth=2, color='red')
+            ax4.set_title('واریانس تجمعی تبیین شده توسط PCA')
+            ax4.set_xlabel('تعداد مولفه‌های اصلی')
+            ax4.set_ylabel('نسبت واریانس تجمعی')
+            ax4.axhline(y=0.95, color='gray', linestyle='--', label='95% Variance')
+            ax4.axhline(y=0.99, color='darkgray', linestyle='-.', label='99% Variance')
+            ax4.set_xticks(np.arange(1, len(cumulative_explained_variance) + 1, step=max(1, len(cumulative_explained_variance)//10)))
+            ax4.legend()
+            ax4.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            pyscript.display(fig4, target="plot_04_pca_cumulative_variance_div")
+            plt.close(fig4)
+
+            combined_feature_names_list = [] 
+            
+            def get_ratio_features(y_set, X_aux_set_current, aux_names_global, units_map_dict):
+                ratio_features_list_local = []
+                ratio_feature_names_list_local = []
+                epsilon = 1e-6
+                y_unit = units_map_dict.get(target_feature_name, "")
+                if y_set.size == 0 or X_aux_set_current.size == 0:
+                    return np.empty((y_set.shape[0], 0)), []
+                y_set_flat = y_set.flatten()
+                for idx, aux_name_item in enumerate(aux_names_global):
+                    if idx < X_aux_set_current.shape[1]: 
+                        aux_col_flat = X_aux_set_current[:, idx].flatten()
+                        denominator = aux_col_flat + epsilon
+                        ratio = np.divide(y_set_flat, denominator, out=np.zeros_like(denominator, dtype=float), where=denominator!=0)
+                        ratio_features_list_local.append(ratio.reshape(-1, 1))
+                        
+                        aux_unit = units_map_dict.get(aux_name_item, "")
+                        ratio_name_with_unit = f"EC_div_{aux_name_item}"
+                        if y_unit and aux_unit:
+                            ratio_name_with_unit += f" ({y_unit}/{aux_unit})"
+                        ratio_feature_names_list_local.append(ratio_name_with_unit)
+                if ratio_features_list_local:
+                    return np.hstack(ratio_features_list_local), ratio_feature_names_list_local
+                else:
+                    return np.empty((y_set_flat.shape[0], 0)), []
+
+            def build_combined_features(X_spec_pca_set, X_spec_cr_set, X_spec_fd_set, X_spec_sd_set, X_aux_set_current, y_set_current, wl, units_map_dict, is_train_set=False):
+                nonlocal combined_feature_names_list 
+                nonlocal auxiliary_features_names 
+                
+                si_arr, si_names = get_spectral_indices(X_spec_cr_set, wl)
+                stat_cr_arr, stat_cr_names = extract_statistical_features(X_spec_cr_set, "CR_")
+                stat_d1_arr, stat_d1_names = extract_statistical_features(X_spec_fd_set, "D1_")
+                stat_d2_arr, stat_d2_names = extract_statistical_features(X_spec_sd_set, "D2_")
+                wv_arr, wv_names = get_wavelet_features(X_spec_cr_set)
+                ratio_arr, ratio_names = get_ratio_features(y_set_current, X_aux_set_current, auxiliary_features_names, units_map_dict)
+
+                features_to_stack = [X_spec_pca_set, si_arr, stat_cr_arr, stat_d1_arr, stat_d2_arr, wv_arr, ratio_arr, X_aux_set_current]
+                
+                valid_features = [f for f in features_to_stack if f is not None and f.size > 0]
+                X_combined_set = np.hstack(valid_features)
+                
+                if is_train_set and not combined_feature_names_list: 
+                    current_names = []
+                    pca_feature_names = [f'PCA_{i+1}' for i in range(X_spec_pca_set.shape[1])]
+                    if X_spec_pca_set.size > 0: current_names.extend(pca_feature_names) 
+                    if si_arr.size > 0: current_names.extend(si_names)
+                    if stat_cr_arr.size > 0: current_names.extend(stat_cr_names)
+                    if stat_d1_arr.size > 0: current_names.extend(stat_d1_names)
+                    if stat_d2_arr.size > 0: current_names.extend(stat_d2_names)
+                    if wv_arr.size > 0: current_names.extend(wv_names) 
+                    if ratio_arr.size > 0: current_names.extend(ratio_names)
+                    if X_aux_set_current.size > 0: 
+                        for aux_name_item in auxiliary_features_names:
+                            unit_str = units_map_dict.get(aux_name_item, "")
+                            current_names.append(f"{aux_name_item} ({unit_str})" if unit_str else aux_name_item)
+                    
+                    combined_feature_names_list = current_names
+                    print(f"لیست نام ویژگی‌ها با {len(combined_feature_names_list)} نام ایجاد شد.")
+                return X_combined_set
+
+            print("ساخت ویژگی‌های ترکیبی برای مجموعه آموزش...")
+            X_combined_train = build_combined_features(X_spec_pca_train, X_spec_cr_train, X_spec_fd_train, X_spec_sd_train, X_aux_train, y_train, wavelengths, units_map, is_train_set=True)
+            print("ساخت ویژگی‌های ترکیبی برای مجموعه اعتبارسنجی...")
+            X_combined_val = build_combined_features(X_spec_pca_val, X_spec_cr_val, X_spec_fd_val, X_spec_sd_val, X_aux_val, y_val, wavelengths, units_map)
+            print("ساخت ویژگی‌های ترکیبی برای مجموعه آزمون...")
+            X_combined_test = build_combined_features(X_spec_pca_test, X_spec_cr_test, X_spec_fd_test, X_spec_sd_test, X_aux_test, y_test, wavelengths, units_map)
+
+
+            scaler = StandardScaler()
+            print("آموزش مقیاس‌بندی بر روی داده‌های آموزش...")
+            if X_combined_train.size > 0 : 
+                X_train_scaled = scaler.fit_transform(X_combined_train)
+                X_val_scaled = scaler.transform(X_combined_val) if X_combined_val.size > 0 else np.array([])
+                X_test_scaled = scaler.transform(X_combined_test) if X_combined_test.size > 0 else np.array([])
+                print("مقیاس‌بندی داده‌ها انجام شد.")
+            else:
+                X_train_scaled, X_val_scaled, X_test_scaled = np.array([]), np.array([]), np.array([])
+
+
+            print("\n--- گام ۵: آموزش و ارزیابی مدل ---")
+            models_to_evaluate_list = [] 
+            param_grid_rf = {'n_estimators': [100, 200], 'max_features': [0.6, 0.8], 'min_samples_leaf': [1, 3], 'max_depth': [None, 10]}
+            models_to_evaluate_list.append({'name': 'Random Forest', 'estimator': RandomForestRegressor(random_state=42, n_jobs=-1), 'param_grid': param_grid_rf})
+            
+            if X_train_scaled.size > 0:
+                max_plsr_comp = min(15, X_train_scaled.shape[1], X_train_scaled.shape[0]-1)
+                if max_plsr_comp > 1:
+                    param_grid_plsr = {'n_components': np.arange(1, max_plsr_comp + 1, step=max(1, max_plsr_comp//5))}
+                    models_to_evaluate_list.append({'name': 'PLSR', 'estimator': PLSRegression(), 'param_grid': param_grid_plsr})
+
+                param_grid_gbr = {'n_estimators': [100, 200], 'learning_rate': [0.05, 0.1], 'max_depth': [3, 5]}
+                models_to_evaluate_list.append({'name': 'Gradient Boosting', 'estimator': GradientBoostingRegressor(random_state=42), 'param_grid': param_grid_gbr})
+                param_grid_svr = {'C': [1, 10], 'epsilon': [0.1], 'kernel': ['rbf']}
+                models_to_evaluate_list.append({'name': 'SVR', 'estimator': SVR(), 'param_grid': param_grid_svr})
+                models_to_evaluate_list.append({'name': 'Linear Regression', 'estimator': LinearRegression(), 'param_grid': {}})
+
+            results_summary_list = []
+            trained_models = {}
+            
+            if X_train_scaled.size > 0 and y_train.size > 0 : 
+                for model_spec in models_to_evaluate_list:
+                    print(f"\n--- آموزش مدل: {model_spec['name']} ---")
+                    
+                    if model_spec['param_grid']:
+                        grid_search_cv = GridSearchCV(model_spec['estimator'], model_spec['param_grid'], cv=3, scoring='r2', n_jobs=-1, verbose=0)
+                        grid_search_cv.fit(X_train_scaled, y_train) 
+                        optimal_estimator = grid_search_cv.best_estimator_
+                        print(f"بهترین پارامترها: {grid_search_cv.best_params_}")
+                    else:
+                        optimal_estimator = model_spec['estimator']
+                        optimal_estimator.fit(X_train_scaled, y_train)
+
+                    trained_models[model_spec['name']] = optimal_estimator
+
+                    buffer = io.BytesIO()
+                    joblib.dump(optimal_estimator, buffer)
+                    model_filename = f"{model_spec['name'].replace(' ', '_').lower()}_model.joblib"
+                    create_download_link(buffer.getvalue(), model_filename, is_binary=True)
+                    print(f"مدل ذخیره شد: {model_filename}")
+
+                    r2_val_m, rmse_val_m, rpd_val_m = np.nan, np.nan, np.nan
+                    if X_val_scaled.size > 0:
+                        y_pred_val = optimal_estimator.predict(X_val_scaled)
+                        r2_val_m = r2_score(y_val, y_pred_val)
+                        rmse_val_m = np.sqrt(mean_squared_error(y_val, y_pred_val))
+                        rpd_val_m = np.std(y_val) / rmse_val_m if rmse_val_m != 0 else np.inf
+                        print(f"عملکرد در مجموعه اعتبارسنجی: R²={r2_val_m:.3f}, RMSE={rmse_val_m:.3f}, RPD={rpd_val_m:.3f}")
+
+                    r2_test_m, rmse_test_m, rpd_test_m = np.nan, np.nan, np.nan
+                    if X_test_scaled.size > 0:
+                        y_pred_test = optimal_estimator.predict(X_test_scaled)
+                        r2_test_m = r2_score(y_test, y_pred_test)
+                        rmse_test_m = np.sqrt(mean_squared_error(y_test, y_pred_test))
+                        rpd_test_m = np.std(y_test) / rmse_test_m if rmse_test_m != 0 else np.inf
+                        print(f"عملکرد در مجموعه آزمون: R²={r2_test_m:.3f}, RMSE={rmse_test_m:.3f}, RPD={rpd_test_m:.3f}")
+
+                    results_summary_list.append({
+                        'Model': model_spec['name'],
+                        'R2_Validation': r2_val_m, 'RMSE_Validation': rmse_val_m, 'RPD_Validation': rpd_val_m,
+                        'R2_Test': r2_test_m, 'RMSE_Test': rmse_test_m, 'RPD_Test': rpd_test_m
+                    })
+
+                    if X_test_scaled.size > 0:
+                        fig_m, ax_m = plt.subplots(1, 2, figsize=(14, 6))
+                        ax_m[0].scatter(y_test, y_pred_test, alpha=0.7, edgecolors='w', linewidth=0.5)
+                        min_val, max_val = min(y_test.min(), y_pred_test.min()), max(y_test.max(), y_pred_test.max())
+                        ax_m[0].plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='1:1 Line')
+                        ax_m[0].set_xlabel(f'مقدار واقعی {target_feature_name}')
+                        ax_m[0].set_ylabel(f'مقدار پیش‌بینی شده')
+                        ax_m[0].set_title(f'واقعی در برابر پیش‌بینی شده - {model_spec["name"]}')
+                        ax_m[0].legend(); ax_m[0].grid(True, linestyle='--', alpha=0.6)
+                        
+                        residuals = y_test - y_pred_test
+                        ax_m[1].scatter(y_pred_test, residuals, alpha=0.7, edgecolors='w', color='green')
+                        ax_m[1].axhline(y=0, color='r', linestyle='--', lw=2)
+                        ax_m[1].set_xlabel(f'مقدار پیش‌بینی شده')
+                        ax_m[1].set_ylabel('باقیمانده‌ها')
+                        ax_m[1].set_title(f'نمودار باقیمانده‌ها - {model_spec["name"]}')
+                        ax_m[1].grid(True, linestyle='--', alpha=0.6)
+                        
+                        plt.tight_layout()
+                        plot_container = create("div", classes="output-container col-span-1 lg:col-span-2")
+                        js_document.getElementById('model_specific_plots_div').append(plot_container)
+                        pyscript.display(fig_m, target=plot_container)
+                        plt.close(fig_m)
+            
+            print("\n--- گام ۶: مقایسه نهایی مدل‌ها ---")
+            if results_summary_list: 
+                results_summary_df = pd.DataFrame(results_summary_list).round(3)
+                print("\nخلاصه عملکرد مدل‌ها:")
+                print(results_summary_df.sort_values(by='R2_Test', ascending=False))
+                
+                table_html = results_summary_df.to_html(classes='w-full text-sm text-left text-gray-500', border=0, index=False)
+                table_html = table_html.replace("<table", "<table class='min-w-full'")
+                table_html = table_html.replace("<thead>", "<thead class='text-xs text-gray-700 uppercase bg-gray-50'>")
+                table_html = table_html.replace("<tbody>", "<tbody class='bg-white divide-y divide-gray-200'>")
+                table_html = table_html.replace("<th>", "<th scope='col' class='py-3 px-6'>")
+                table_html = table_html.replace("<td>", "<td class='py-4 px-6'>")
+                js_document.getElementById('summary-table-output').innerHTML = table_html
+                
+                save_and_link_df(results_summary_df, "20_models_performance_summary.csv")
+                
+                fig_comp, axes_comp = plt.subplots(3, 1, figsize=(12, 15), sharex=True)
+                metrics_to_plot = ['R2_Test', 'RMSE_Test', 'RPD_Test'] 
+                plot_colors = ['cornflowerblue', 'salmon', 'lightseagreen']
+                for i, metric in enumerate(metrics_to_plot):
+                    ascending_sort = (metric == 'RMSE_Test') 
+                    sorted_df = results_summary_df.sort_values(by=metric, ascending=ascending_sort)
+                    axes_comp[i].bar(sorted_df['Model'], sorted_df[metric], color=plot_colors[i])
+                    axes_comp[i].set_ylabel(metric)
+                    axes_comp[i].tick_params(axis='x', rotation=45)
+                fig_comp.suptitle('مقایسه عملکرد مدل‌ها در مجموعه آزمون', fontsize=16)
+                plt.tight_layout(rect=[0, 0, 1, 0.96])
+                pyscript.display(fig_comp, target="plot_21_model_performance_comparison_div")
+                plt.close(fig_comp)
+
+                best_model_name = results_summary_df.loc[results_summary_df['R2_Test'].idxmax()]['Model']
+                print(f"\nنمایش اهمیت ویژگی‌ها برای بهترین مدل ({best_model_name})")
+                
+                best_model_obj = trained_models.get(best_model_name)
+                
+                if best_model_obj and hasattr(best_model_obj, 'feature_importances_'):
+                    importances = best_model_obj.feature_importances_
+                    feature_importances_df = pd.DataFrame({
+                        'Feature': combined_feature_names_list, 
+                        'Importance': importances
+                    }).sort_values(by='Importance', ascending=False)
+                    
+                    top_n = 30
+                    fig_fi, ax_fi = plt.subplots(figsize=(12, 10))
+                    ax_fi.barh(feature_importances_df['Feature'][:top_n], feature_importances_df['Importance'][:top_n], color='mediumpurple')
+                    ax_fi.set_xlabel('اهمیت ویژگی')
+                    ax_fi.set_title(f'{top_n} ویژگی برتر بر اساس اهمیت ({best_model_name})')
+                    ax_fi.invert_yaxis()
+                    plt.tight_layout()
+                    pyscript.display(fig_fi, target="plot_22_feature_importance_div")
+                    plt.close(fig_fi)
+
+            total_end_time = time.time()
+            print(f"\nفرآیند تحلیل به پایان رسید. زمان کل اجرا: {total_end_time - start_time_total:.2f} ثانیه.")
+
+        print("اپلیکیشن آماده است. لطفاً فایل خود را بارگذاری کرده و روی دکمه شروع کلیک کنید.")
+    </py-script>
+
+    <script>
+        // JavaScript for controlling UI tabs
+        function showTab(tabName) {
+            const tabs = document.querySelectorAll('.tab-content');
+            tabs.forEach(tab => tab.classList.add('hidden'));
+            document.getElementById(tabName + '-tab').classList.remove('hidden');
+
+            const buttons = document.querySelectorAll('.tab-button');
+            buttons.forEach(button => button.classList.remove('active'));
+            document.querySelector(`button[onclick="showTab('${tabName}')"]`).classList.add('active');
+        }
+
+        // Initial check for file input to enable/disable run button
+        const runButton = document.getElementById('run-button');
+        const fileInput = document.getElementById('file-input');
+        const fileError = document.getElementById('file-error');
+        runButton.disabled = true;
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                runButton.disabled = false;
+                fileError.classList.add('hidden');
+            } else {
+                runButton.disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>
